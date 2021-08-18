@@ -11,27 +11,24 @@
 # or derivations thereof.
 # === UCSF ChimeraX Copyright ===
 
-from chimerax.webservices.opal_job import OpalJob
 from chimerax.webservices.cxservices_job import CxServicesJob
-from cxservices.rest import ApiException
 
-
-class CCDJob(OpalJob):
-
-    OPAL_SERVICE = "CCDService"
-
-    def __init__(self, session, name):
-        super().__init__(session)
-        self.start(self.OPAL_SERVICE, name)
-
-    def on_finish(self):
-        self.session.logger.info("Standard output:\n" + self.get_stdout())
-
-
-class BlastProteinBase:
+class BlastProteinJob(CxServicesJob):
 
     QUERY_FILENAME = "query.fa"
     RESULTS_FILENAME = "results.json"
+
+    def __init__(self, session, seq, atomspec, **kw):
+        super().__init__(session)
+        self.setup(seq, atomspec, **kw)
+        params = {"db": self.database,
+                  "evalue": str(self.cutoff),
+                  "matrix": self.matrix,
+                  "blimit": str(self.max_seqs),
+                  "input_seq": self.seq,
+                  "output_file": self.RESULTS_FILENAME}
+        self.start("blast", params)
+
 
     def setup(self, seq, atomspec, database="pdb", cutoff=1.0e-3,
               matrix="BLOSUM62", max_seqs=500, log=None, tool_inst_name=None,
@@ -112,52 +109,3 @@ class BlastProteinBase:
                                                str(m.score),
                                                m.description]))
                     logger.info('\n'.join(msgs))
-
-
-class OpalBlastProteinJob(BlastProteinBase, OpalJob):
-    # Must inherit from BlastProteinBase first to get the right on_finish()
-
-    OPAL_SERVICE = "BlastProtein2Service"
-
-    def __init__(self, session, seq, atomspec, **kw):
-        super().__init__(session)
-        self.setup(seq, atomspec, **kw)
-        options = ["-d", self.database,
-                   "-e", str(self.cutoff),
-                   "-M", self.matrix,
-                   "-b", str(self.max_seqs),
-                   "-i", self.QUERY_FILENAME,
-                   "-o", self.RESULTS_FILENAME]
-        cmd = ' '.join(options)
-        fasta = self._seq_to_fasta(self.seq, "query")
-        input_file_map = [(self.QUERY_FILENAME, "bytes", fasta.encode("utf-8"))]
-        self.start(self.OPAL_SERVICE, cmd, input_file_map=input_file_map)
-
-
-class RestBlastProteinJob(BlastProteinBase, CxServicesJob):
-    # Must inherit from BlastProteinBase first to get the right on_finish()
-
-    def __init__(self, session, seq, atomspec, **kw):
-        super().__init__(session)
-        self.setup(seq, atomspec, **kw)
-        params = {"db": self.database,
-                  "evalue": str(self.cutoff),
-                  "matrix": self.matrix,
-                  "blimit": str(self.max_seqs),
-                  "input_seq": self.seq,
-                  "output_file": self.RESULTS_FILENAME}
-        self.start("blast", params)
-
-
-ServiceMap = {
-    "opal": OpalBlastProteinJob,
-    "rest": RestBlastProteinJob
-}
-
-
-def BlastProteinJob(session, seq, atomspec, **kw):
-    service = kw.get("service", "rest")
-    try:
-        return ServiceMap[service](session, seq, atomspec, **kw)
-    except KeyError:
-        raise ValueError("unknown service type: %s" % service)
